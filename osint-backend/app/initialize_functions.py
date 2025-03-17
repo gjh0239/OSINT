@@ -1,13 +1,12 @@
 from flask import Flask
 from flasgger import Swagger
-from app.modules.main.route import main_bp
+# Remove this import: from app.modules.main.route import main_bp
 from app.db.db import db
 
-
 def initialize_route(app: Flask):
-    with app.app_context():
-        app.register_blueprint(main_bp, url_prefix='/api/v1/main')
-
+    # Either remove this function entirely or leave it empty
+    # (who knows if i will need it later)
+    pass
 
 def initialize_db(app: Flask):
     with app.app_context():

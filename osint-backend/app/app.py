@@ -1,7 +1,8 @@
-from flask import Flask
-from blueprints.main import main_bp
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from app.blueprints.main import main_bp
 from app.config.config import get_config_by_name
-from app.initialize_functions import initialize_route, initialize_db, initialize_swagger
+from app.initialize_functions import initialize_db, initialize_swagger
 
 def create_app(config=None) -> Flask:
     """
@@ -14,7 +15,10 @@ def create_app(config=None) -> Flask:
         A Flask application instance.
     """
     app = Flask(__name__)
-    app.register_blueprint(main_bp)
+    CORS(app)  # Apply CORS globally
+    
+    # Register blueprint with a URL prefix to match the previous modules approach
+    app.register_blueprint(main_bp, url_prefix='/api/v1/main')
     
     if config:
         app.config.from_object(get_config_by_name(config))
@@ -22,9 +26,8 @@ def create_app(config=None) -> Flask:
     # Initialize extensions
     initialize_db(app)
 
-    # Register blueprints
-    initialize_route(app)
-
+    # Remove this line: initialize_route(app)
+    
     # Initialize Swagger
     initialize_swagger(app)
 

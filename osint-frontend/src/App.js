@@ -1,23 +1,16 @@
-import logo from './logo.svg';
+import React from 'react';
 import './App.css';
+import EmailBreachCheck from './components/EmailBreachCheck';
 
 function App() {
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
+      <header className="App-header" style={{ minHeight: '15vh' }}>
+        <h1>OSINT Tool</h1>
       </header>
+      <main>
+        <EmailBreachCheck />
+      </main>
     </div>
   );
 }
