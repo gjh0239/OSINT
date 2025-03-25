@@ -4,31 +4,11 @@ import './UnifiedSearch.css';
 
 function UnifiedSearch() {
     const [query, setQuery] = useState('');
-    const [results, setResults] = useState({
-        emailResults: null,
-        vtResults: null,
-        shodanResults: null,
-        domainResults: null
-    });
+    const [results, setResults] = useState(null);
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [inputType, setInputType] = useState(null); // 'ip', 'email', 'domain'
     const [activeView, setActiveView] = useState('combined'); // 'combined', 'detailed'
-
-    // Function to detect input type
-    const detectInputType = (input) => {
-        // IP address pattern
-        const ipPattern = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
-        // Email pattern
-        const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-        // Domain pattern (simple version)
-        const domainPattern = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
-
-        if (ipPattern.test(input)) return 'ip';
-        if (emailPattern.test(input)) return 'email';
-        if (domainPattern.test(input)) return 'domain';
-        return null;
-    };
+    const [apiStats, setApiStats] = useState(null);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -36,80 +16,34 @@ function UnifiedSearch() {
         setLoading(true);
         
         // Reset results
-        setResults({
-            emailResults: null,
-            vtResults: null,
-            shodanResults: null,
-            domainResults: null
-        });
+        setResults(null);
+        setApiStats(null);
 
-        // Detect input type
-        const type = detectInputType(query);
-        setInputType(type);
-
-        if (!type) {
-            setError('Invalid input format. Please enter a valid IP address, domain, or email.');
+        // Sanitize input - trim whitespace
+        const sanitizedQuery = query.trim();
+        
+        if (!sanitizedQuery) {
+            setError('Please enter a search query');
             setLoading(false);
             return;
         }
 
         try {
-            // Make API calls based on input type
-            if (type === 'ip') {
-                // For IP lookups, handle VirusTotal and Shodan separately to allow partial results
-                let vtResults = null;
-                let shodanResults = null;
-                
-                try {
-                    const vtResponse = await axios.post('http://10.77.252.160:5000/api/v1/main/virustotal-lookup', { ip: query });
-                    vtResults = vtResponse.data;
-                } catch (vtErr) {
-                    console.error("VirusTotal API Error:", vtErr);
-                    // Continue with Shodan results
-                }
-                
-                try {
-                    const shodanResponse = await axios.post('http://10.77.252.160:5000/api/v1/main/shodan-lookup', { query });
-                    shodanResults = shodanResponse.data;
-                } catch (shodanErr) {
-                    console.error("Shodan API Error:", shodanErr);
-                    // Continue with VirusTotal results
-                }
-                
-                if (!vtResults && !shodanResults) {
-                    setError('Both VirusTotal and Shodan lookups failed. Please try again later.');
-                } else {
-                    setResults({
-                        ...results,
-                        vtResults,
-                        shodanResults
-                    });
-                }
-            } 
-            else if (type === 'email') {
-                // For email lookups, use the LeakCheck service
-                const emailResponse = await axios.post('http://10.77.252.160:5000/api/v1/main/check-email', { email: query });
-                setResults({
-                    ...results,
-                    emailResults: emailResponse.data
-                });
-            } 
-            else if (type === 'domain') {
-                // For domain lookups, handle Shodan errors separately
-                try {
-                    const shodanResponse = await axios.post('http://10.77.252.160:5000/api/v1/main/shodan-lookup', { query });
-                    setResults({
-                        ...results,
-                        shodanResults: shodanResponse.data,
-                        domainResults: shodanResponse.data // Using Shodan data for domains for now
-                    });
-                } catch (shodanErr) {
-                    console.error("Shodan API Error for domain:", shodanErr);
-                    setError('Shodan domain lookup failed. Please try again later.');
-                }
+            // Call the unified search endpoint
+            const response = await axios.post('http://10.77.252.160:5000/api/v1/main/unified-search', { 
+                query: sanitizedQuery 
+            });
+            
+            // Store the results and API usage statistics
+            setResults(response.data.results);
+            setApiStats(response.data.api_usage);
+            
+            // Display any errors returned from the backend
+            if (response.data.errors && response.data.errors.length > 0) {
+                setError(`${response.data.errors.length} error(s): ${response.data.errors.join('; ')}`);
             }
+            
         } catch (err) {
-            // This will catch any other errors not caught by the specific try/catch blocks
             console.error("API Error:", err);
             if (err.response?.data?.error) {
                 setError(`Error: ${err.response.data.error}`);
@@ -121,55 +55,121 @@ function UnifiedSearch() {
         }
     };
 
-    // Render IP analysis results (VirusTotal + Shodan)
-    const renderIPResults = () => {
-        const { vtResults, shodanResults } = results;
-        
-        if (!vtResults && !shodanResults) return null;
-        
-        // This component reuses parts of the existing VirustotalLookup component
+    // Render all search results
+    const renderSearchResults = () => {
+        if (!results || Object.keys(results).length === 0) {
+            return (
+                <div className="no-results">
+                    <p>No results found.</p>
+                </div>
+            );
+        }
+
         return (
-            <div className="results-section">
+            <>
+                {/* Display API usage statistics */}
+                {apiStats && (
+                    <div className="api-stats-section">
+                        <h4>API Calls Summary</h4>
+                        <div className="api-stats-grid">
+                            <div className="api-stat-item">
+                                <span className="stat-label">Total API Calls:</span>
+                                <span className="stat-value">{apiStats.total_calls}</span>
+                            </div>
+                            {apiStats.virustotal_ip > 0 && (
+                                <div className="api-stat-item">
+                                    <span className="stat-label">VirusTotal IP:</span>
+                                    <span className="stat-value">{apiStats.virustotal_ip}</span>
+                                </div>
+                            )}
+                            {apiStats.virustotal_domain > 0 && (
+                                <div className="api-stat-item">
+                                    <span className="stat-label">VirusTotal Domain:</span>
+                                    <span className="stat-value">{apiStats.virustotal_domain}</span>
+                                </div>
+                            )}
+                            {apiStats.shodan > 0 && (
+                                <div className="api-stat-item">
+                                    <span className="stat-label">Shodan:</span>
+                                    <span className="stat-value">{apiStats.shodan}</span>
+                                </div>
+                            )}
+                            {apiStats.leakcheck > 0 && (
+                                <div className="api-stat-item">
+                                    <span className="stat-label">LeakCheck:</span>
+                                    <span className="stat-value">{apiStats.leakcheck}</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Display individual result sections */}
+                {Object.keys(results).map(key => {
+                    const resultItem = results[key];
+                    
+                    switch(resultItem.type) {
+                        case 'ip':
+                            return renderIPResult(key, resultItem);
+                        case 'email':
+                            return renderEmailResult(key, resultItem);
+                        case 'domain':
+                            return renderDomainResult(key, resultItem);
+                        default:
+                            return null;
+                    }
+                })}
+            </>
+        );
+    };
+
+    // Render IP analysis result
+    const renderIPResult = (ip, data) => {
+        const vtData = data.virustotal?.data;
+        const shodanData = data.shodan;
+        
+        return (
+            <div key={ip} className="results-section">
                 <div className="result-header">
-                    <h3>IP Intelligence Results</h3>
+                    <h3>IP Intelligence: {ip}</h3>
                     <div className="source-badges">
-                        {vtResults && <span className="source-badge vt-badge">VirusTotal</span>}
-                        {shodanResults && <span className="source-badge shodan-badge">Shodan</span>}
+                        {vtData && <span className="source-badge vt-badge">VirusTotal</span>}
+                        {shodanData && <span className="source-badge shodan-badge">Shodan</span>}
                     </div>
                 </div>
                 
                 {/* Show VirusTotal results */}
-                {vtResults && vtResults.data && vtResults.data.attributes && (
+                {vtData && vtData.attributes && (
                     <div className="vt-results">
                         <div className="vt-summary">
                             <h4>IP Reputation</h4>
-                            {renderReputationMeter(vtResults.data.attributes)}
+                            {renderReputationMeter(vtData.attributes)}
                         </div>
                         
                         {/* Network and Geolocation Info */}
-                        {renderVTNetworkInfo(vtResults.data.attributes)}
+                        {renderVTNetworkInfo(vtData.attributes)}
                         
-                        {activeView === 'detailed' && renderVTDetailedInfo(vtResults.data.attributes)}
+                        {activeView === 'detailed' && renderVTDetailedInfo(vtData.attributes)}
                     </div>
                 )}
                 
                 {/* Show Shodan results */}
-                {shodanResults && shodanResults.ip_str && (
+                {shodanData && shodanData.ip_str && (
                     <div className="shodan-results">
                         <div className="vt-info-section shodan-section">
                             <h4>Infrastructure Information</h4>
                             <div className="shodan-ip-info">
-                                <p><strong>Organization:</strong> {shodanResults.org || 'Unknown'}</p>
-                                <p><strong>ISP:</strong> {shodanResults.isp || 'Unknown'}</p>
-                                <p><strong>Location:</strong> {shodanResults.country_name || 'Unknown'}, {shodanResults.city || 'Unknown'}</p>
+                                <p><strong>Organization:</strong> {shodanData.org || 'Unknown'}</p>
+                                <p><strong>ISP:</strong> {shodanData.isp || 'Unknown'}</p>
+                                <p><strong>Location:</strong> {shodanData.country_name || 'Unknown'}, {shodanData.city || 'Unknown'}</p>
                             </div>
                             
                             {/* Open Ports */}
-                            {shodanResults.ports && shodanResults.ports.length > 0 && (
+                            {shodanData.ports && shodanData.ports.length > 0 && (
                                 <div className="shodan-ports">
                                     <h5>Open Ports</h5>
                                     <div className="ports-list">
-                                        {shodanResults.ports.map(port => (
+                                        {shodanData.ports.map(port => (
                                             <span key={port} className="port-tag">{port}</span>
                                         ))}
                                     </div>
@@ -177,11 +177,11 @@ function UnifiedSearch() {
                             )}
                             
                             {/* Vulnerabilities */}
-                            {shodanResults.vulns && Object.keys(shodanResults.vulns).length > 0 && (
+                            {shodanData.vulns && Object.keys(shodanData.vulns).length > 0 && (
                                 <div className="shodan-vulns">
                                     <h5>Potential Vulnerabilities</h5>
                                     <ul className="vulns-list">
-                                        {Object.keys(shodanResults.vulns).map(vuln => (
+                                        {Object.keys(shodanData.vulns).map(vuln => (
                                             <li key={vuln} className="vuln-item">
                                                 <a href={`https://nvd.nist.gov/vuln/detail/${vuln}`} target="_blank" rel="noopener noreferrer">
                                                     {vuln}
@@ -194,28 +194,28 @@ function UnifiedSearch() {
                         </div>
                         
                         {/* Exposed Services (limited in combined view) */}
-                        {shodanResults.data && shodanResults.data.length > 0 && (
+                        {shodanData.data && shodanData.data.length > 0 && (
                             <div className="vt-info-section">
                                 <h4>Exposed Services</h4>
                                 {activeView === 'combined' ? (
                                     <>
-                                        {shodanResults.data.slice(0, 3).map((service, idx) => (
+                                        {shodanData.data.slice(0, 3).map((service, idx) => (
                                             <div key={idx} className="service-preview">
                                                 <span className="service-port">Port {service.port}</span>
                                                 <span className="service-product">{service.product || 'Unknown'} {service.version || ''}</span>
                                             </div>
                                         ))}
-                                        {shodanResults.data.length > 3 && (
+                                        {shodanData.data.length > 3 && (
                                             <div className="more-services">
                                                 <a href="#" onClick={(e) => {e.preventDefault(); setActiveView('detailed');}}>
-                                                    Show all {shodanResults.data.length} services...
+                                                    Show all {shodanData.data.length} services...
                                                 </a>
                                             </div>
                                         )}
                                     </>
                                 ) : (
                                     <div className="services-section">
-                                        {shodanResults.data.map((service, idx) => (
+                                        {shodanData.data.map((service, idx) => (
                                             <div key={idx} className="service-card">
                                                 <div className="service-header">
                                                     <h5>Port {service.port} ({service.transport || 'tcp'})</h5>
@@ -247,6 +247,123 @@ function UnifiedSearch() {
                         Detailed View
                     </button>
                 </div>
+            </div>
+        );
+    };
+
+    // Render email result
+    const renderEmailResult = (email, data) => {
+        const emailData = data.leakcheck;
+        
+        if (!emailData) return null;
+        
+        return (
+            <div key={email} className="results-section">
+                <div className="result-header">
+                    <h3>Email Security: {email}</h3>
+                </div>
+                
+                <div className="email-results-container">
+                    {emailData.breached ? (
+                        <>
+                            <div className="alert alert-danger">
+                                <strong>Oh no!</strong> This email was found in {emailData.found} data breach(es).
+                            </div>
+
+                            {emailData.exposed_data && emailData.exposed_data.length > 0 && (
+                                <div className="exposed-data">
+                                    <h4>Exposed Information Types:</h4>
+                                    <ul>
+                                        {emailData.exposed_data.map((field, index) => (
+                                            <li key={index}>{field}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            <div className="breaches-list">
+                                <h4>Breach Sources:</h4>
+                                {emailData.breaches.map((breach, index) => (
+                                    <div key={index} className="breach-item">
+                                        <h5>{breach.name}</h5>
+                                        <p><strong>Date:</strong> {breach.date}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="alert alert-success">
+                            <strong>Good news!</strong> This email wasn't found in any known data breaches.
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    // Render domain result
+    const renderDomainResult = (domain, data) => {
+        const vtData = data.virustotal?.data;
+        const shodanData = data.shodan;
+        
+        return (
+            <div key={domain} className="results-section">
+                <div className="result-header">
+                    <h3>Domain Intelligence: {domain}</h3>
+                    <div className="source-badges">
+                        {vtData && <span className="source-badge vt-badge">VirusTotal</span>}
+                        {shodanData && <span className="source-badge shodan-badge">Shodan</span>}
+                    </div>
+                </div>
+                
+                {/* VT Domain Info if available */}
+                {vtData && vtData.attributes && (
+                    <div className="vt-info-section">
+                        <h4>Domain Reputation</h4>
+                        {vtData.attributes.last_analysis_stats && renderReputationMeter(vtData.attributes)}
+                        
+                        {/* Domain categories */}
+                        {vtData.attributes.categories && Object.keys(vtData.attributes.categories).length > 0 && (
+                            <div className="domain-categories">
+                                <h5>Categories:</h5>
+                                <div className="tags-container">
+                                    {Object.entries(vtData.attributes.categories).map(([source, category], index) => (
+                                        <span key={index} className="ip-tag">
+                                            {category} ({source})
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+                
+                {/* Shodan Domain Search Results */}
+                {shodanData && shodanData.matches && shodanData.matches.length > 0 && (
+                    <div className="vt-info-section">
+                        <h4>Associated IP Addresses</h4>
+                        <p>Found {shodanData.matches.length} IP addresses associated with this domain:</p>
+                        
+                        <div className="domain-results">
+                            {shodanData.matches.map((match, idx) => (
+                                <div key={idx} className="match-item">
+                                    <h5>{match.ip_str}</h5>
+                                    <p><strong>Hostnames:</strong> {match.hostnames?.join(', ') || 'None'}</p>
+                                    <p><strong>Open Ports:</strong> {match.ports ? match.ports.join(', ') : 'None'}</p>
+                                    <p><strong>ISP:</strong> {match.isp || 'Unknown'}</p>
+                                    <p><strong>Location:</strong> {match.country_name || 'Unknown'}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                
+                {/* No results message */}
+                {(!shodanData || !shodanData.matches || shodanData.matches.length === 0) && !vtData && (
+                    <div className="no-results">
+                        <p>No information found for this domain.</p>
+                    </div>
+                )}
             </div>
         );
     };
@@ -341,98 +458,6 @@ function UnifiedSearch() {
             </>
         );
     };
-    
-    // Render domain analysis results
-    const renderDomainResults = () => {
-        const { shodanResults, domainResults } = results;
-        
-        if (!shodanResults && !domainResults) return null;
-        
-        return (
-            <div className="results-section">
-                <div className="result-header">
-                    <h3>Domain Intelligence Results</h3>
-                </div>
-                
-                {/* Domain search results from Shodan */}
-                {shodanResults && shodanResults.matches && shodanResults.matches.length > 0 && (
-                    <div className="vt-info-section">
-                        <h4>Associated IP Addresses</h4>
-                        <p>Found {shodanResults.matches.length} IP addresses associated with this domain:</p>
-                        
-                        <div className="domain-results">
-                            {shodanResults.matches.map((match, idx) => (
-                                <div key={idx} className="match-item">
-                                    <h5>{match.ip_str}</h5>
-                                    <p><strong>Hostnames:</strong> {match.hostnames?.join(', ') || 'None'}</p>
-                                    <p><strong>Open Ports:</strong> {match.ports ? match.ports.join(', ') : 'None'}</p>
-                                    <p><strong>ISP:</strong> {match.isp || 'Unknown'}</p>
-                                    <p><strong>Location:</strong> {match.country_name || 'Unknown'}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-                
-                {/* No results message */}
-                {(!shodanResults || !shodanResults.matches || shodanResults.matches.length === 0) && (
-                    <div className="no-results">
-                        <p>No information found for this domain.</p>
-                    </div>
-                )}
-            </div>
-        );
-    };
-    
-    // Render email breach check results
-    const renderEmailResults = () => {
-        const { emailResults } = results;
-        
-        if (!emailResults) return null;
-        
-        return (
-            <div className="results-section">
-                <div className="result-header">
-                    <h3>Email Security Check Results</h3>
-                </div>
-                
-                <div className="email-results-container">
-                    {emailResults.breached ? (
-                        <>
-                            <div className="alert alert-danger">
-                                <strong>Oh no!</strong> Your email was found in {emailResults.found} data breach(es).
-                            </div>
-
-                            {emailResults.exposed_data && emailResults.exposed_data.length > 0 && (
-                                <div className="exposed-data">
-                                    <h4>Exposed Information Types:</h4>
-                                    <ul>
-                                        {emailResults.exposed_data.map((field, index) => (
-                                            <li key={index}>{field}</li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-
-                            <div className="breaches-list">
-                                <h4>Breach Sources:</h4>
-                                {emailResults.breaches.map((breach, index) => (
-                                    <div key={index} className="breach-item">
-                                        <h5>{breach.name}</h5>
-                                        <p><strong>Date:</strong> {breach.date}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    ) : (
-                        <div className="alert alert-success">
-                            <strong>Good news!</strong> Your email wasn't found in any known data breaches.
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    };
 
     return (
         <div className="unified-search-container">
@@ -459,15 +484,14 @@ function UnifiedSearch() {
                 
                 <div className="search-tips">
                     <p>Examples: 8.8.8.8 (IP), example.com (domain), user@example.com (email)</p>
+                    <p className="multi-tip">Pro tip: Enter comma-separated values for multiple lookups (e.g., "8.8.8.8,1.1.1.1")</p>
                 </div>
             </form>
 
             {error && <div className="error-message">{error}</div>}
 
             <div className="results-container">
-                {inputType === 'ip' && renderIPResults()}
-                {inputType === 'domain' && renderDomainResults()}
-                {inputType === 'email' && renderEmailResults()}
+                {results && renderSearchResults()}
             </div>
         </div>
     );

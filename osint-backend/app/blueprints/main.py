@@ -5,6 +5,7 @@ import json
 import redis
 import logging
 from dotenv import load_dotenv
+import re
 
 main_bp = Blueprint('main', __name__)
 
@@ -424,3 +425,257 @@ def virustotal_email_lookup():
         return jsonify(result)
     except requests.exceptions.RequestException as e:
         return jsonify({"error": str(e)}), 500
+
+@main_bp.route('/unified-search', methods=['POST'])
+def unified_search():
+    """
+    Unified search endpoint that detects input type and processes accordingly.
+    Handles single or multiple comma-separated values.
+    ---
+    tags:
+      - Unified Search API
+    parameters:
+      - name: query
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            query:
+              type: string
+              description: IP address, email, domain, or comma-separated list
+              example: "8.8.8.8,1.1.1.1"
+    responses:
+      200:
+        description: Unified search results
+      400:
+        description: Missing or invalid query
+      500:
+        description: Server error
+    """
+    data = request.json
+    query = data.get('query', '').strip()
+    
+    if not query:
+        return jsonify({"error": "No search query provided"}), 400
+    
+    # Parse comma-separated values (with or without spaces)
+    values = [val.strip() for val in re.split(r',\s*', query) if val.strip()]
+    
+    # Prepare result containers
+    results = {}
+    api_usage = {
+        "virustotal_ip": 0,
+        "virustotal_domain": 0,
+        "virustotal_email": 0,
+        "shodan": 0,
+        "leakcheck": 0,
+        "total_calls": 0
+    }
+    errors = []
+    
+    # Process each value
+    for value in values:
+        # Detect type
+        input_type = detect_input_type(value)
+        
+        if not input_type:
+            errors.append(f"Could not determine type for: {value}")
+            continue
+        
+        # Process based on detected type
+        try:
+            if input_type == "ip":
+                # For IPs, query both VirusTotal and Shodan
+                vt_result = process_virustotal_ip(value)
+                shodan_result = process_shodan_query(value)
+                
+                results[value] = {
+                    "type": "ip",
+                    "virustotal": vt_result,
+                    "shodan": shodan_result
+                }
+                
+                api_usage["virustotal_ip"] += 1
+                api_usage["shodan"] += 1
+                api_usage["total_calls"] += 2
+                
+            elif input_type == "email":
+                # For emails, query LeakCheck
+                leakcheck_result = process_email_breach(value)
+                
+                results[value] = {
+                    "type": "email",
+                    "leakcheck": leakcheck_result
+                }
+                
+                api_usage["leakcheck"] += 1
+                api_usage["total_calls"] += 1
+                
+            elif input_type == "domain":
+                # For domains, query both VirusTotal and Shodan
+                vt_result = process_virustotal_domain(value)
+                shodan_result = process_shodan_query(value)
+                
+                results[value] = {
+                    "type": "domain",
+                    "virustotal": vt_result,
+                    "shodan": shodan_result
+                }
+                
+                api_usage["virustotal_domain"] += 1
+                api_usage["shodan"] += 1
+                api_usage["total_calls"] += 2
+        
+        except Exception as e:
+            errors.append(f"Error processing {value}: {str(e)}")
+    
+    # Prepare final response
+    response = {
+        "results": results,
+        "api_usage": api_usage,
+        "errors": errors,
+        "query_count": len(values),
+        "success_count": len(results)
+    }
+    
+    return jsonify(response)
+
+def detect_input_type(value):
+    """Detect if the input is an IP, email or domain"""
+    # IP address pattern
+    ip_pattern = re.compile(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+    # Email pattern
+    email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    # Domain pattern (simple version)
+    domain_pattern = re.compile(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}$')
+    
+    if ip_pattern.match(value):
+        return "ip"
+    elif email_pattern.match(value):
+        return "email"
+    elif domain_pattern.match(value):
+        return "domain"
+    return None
+
+def process_virustotal_ip(ip):
+    """Process a VirusTotal IP lookup without making a full HTTP request"""
+    # Check cache first
+    cache_key = f"virustotal:ip:{ip}"
+    cached_result = get_from_cache(cache_key)
+    if cached_result:
+        return cached_result
+    
+    # Not in cache, get VirusTotal API key
+    api_key = os.getenv('VIRUSTOTAL_API_KEY', '')
+    if not api_key:
+        raise Exception("VirusTotal API key not configured on server")
+    
+    # Make request to VirusTotal API
+    headers = {"x-apikey": api_key}
+    response = requests.get(
+        f"https://www.virustotal.com/api/v3/ip_addresses/{ip}", 
+        headers=headers
+    )
+    response.raise_for_status()
+    result = response.json()
+    
+    # Store in cache
+    set_in_cache(cache_key, result, CACHE_TTL['ip_lookup'])
+    
+    return result
+
+def process_virustotal_domain(domain):
+    """Process a VirusTotal domain lookup without making a full HTTP request"""
+    # Check cache first
+    cache_key = f"virustotal:domain:{domain}"
+    cached_result = get_from_cache(cache_key)
+    if cached_result:
+        return cached_result
+    
+    # Not in cache, get VirusTotal API key
+    api_key = os.getenv('VIRUSTOTAL_API_KEY', '')
+    if not api_key:
+        raise Exception("VirusTotal API key not configured on server")
+    
+    # Make request to VirusTotal API
+    headers = {"x-apikey": api_key}
+    response = requests.get(
+        f"https://www.virustotal.com/api/v3/domains/{domain}", 
+        headers=headers
+    )
+    response.raise_for_status()
+    result = response.json()
+    
+    # Store in cache
+    set_in_cache(cache_key, result, CACHE_TTL['domain_lookup'])
+    
+    return result
+
+def process_shodan_query(query):
+    """Process a Shodan lookup without making a full HTTP request"""
+    # Check cache first
+    query_type = "ip" if query.replace('.', '').isdigit() else "domain"
+    cache_key = f"shodan:{query_type}:{query}"
+    cached_result = get_from_cache(cache_key)
+    if cached_result:
+        return cached_result
+    
+    # Not in cache, get Shodan API key
+    api_key = os.getenv('SHODAN_API_KEY', '')
+    if not api_key:
+        raise Exception("Shodan API key not configured on server")
+    
+    # Make request to Shodan API
+    if query_type == "ip":
+        # Looking up specific IP
+        response = requests.get(f"https://api.shodan.io/shodan/host/{query}?key={api_key}")
+    else:
+        # Domain search
+        response = requests.get(
+            "https://api.shodan.io/shodan/host/search", 
+            params={"key": api_key, "query": f"hostname:{query}"}
+        )
+        
+    response.raise_for_status()
+    result = response.json()
+    
+    # Store in cache
+    ttl = CACHE_TTL['ip_lookup'] if query_type == "ip" else CACHE_TTL['domain_lookup']
+    set_in_cache(cache_key, result, ttl)
+    
+    return result
+
+def process_email_breach(email):
+    """Process an email breach check without making a full HTTP request"""
+    # Check cache first
+    cache_key = f"leakcheck:email:{email}"
+    cached_result = get_from_cache(cache_key)
+    if cached_result:
+        return cached_result
+    
+    # Not in cache, get LeakCheck API key
+    api_key = os.getenv('LEAKCHECK_API_KEY', '')
+    if not api_key:
+        raise Exception("LeakCheck API key not configured on server")
+    
+    # Make LeakCheck API call
+    response = requests.get(f"https://leakcheck.io/api/public?key={api_key}&check={email}")
+    response.raise_for_status()
+    
+    data = response.json()
+    
+    if not data.get('success'):
+        raise Exception(data.get('message', 'Unknown error from API'))
+        
+    result = {
+        "breached": data.get('found', 0) > 0,
+        "found": data.get('found', 0),
+        "exposed_data": data.get('fields', []),
+        "breaches": data.get('sources', [])
+    }
+    
+    # Store in cache
+    set_in_cache(cache_key, result, CACHE_TTL['email_breach'])
+    
+    return result
