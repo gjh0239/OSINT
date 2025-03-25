@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import './App.css';
 import EmailBreachCheck from './components/EmailBreachCheck';
 import ShodanLookup from './components/ShodanLookup';
+import VirustotalLookup from './components/VirustotalLookup';
 
 function App() {
   const [activeTab, setActiveTab] = useState('email');
@@ -25,11 +26,18 @@ function App() {
         >
           Shodan Lookup
         </button>
+        <button
+          className={`tab-button ${activeTab === 'virustotal' ? 'active' : ''}`}
+          onClick={() => setActiveTab('virustotal')}
+        >
+          VirusTotal Lookup
+        </button>
       </div>
 
       <main>
         {activeTab === 'email' && <EmailBreachCheck />}
         {activeTab === 'shodan' && <ShodanLookup />}
+        {activeTab === 'virustotal' && <VirustotalLookup />}
       </main>
     </div>
   );

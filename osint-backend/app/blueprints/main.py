@@ -175,3 +175,52 @@ def shodan_lookup():
             
     except requests.exceptions.RequestException as e:
         return jsonify({"error": str(e)}), 500
+      
+@main_bp.route('/virustotal-lookup', methods=['POST'])
+def virustotal_lookup():
+    """
+    Performs a lookup against the VirusTotal API for a given IP address.
+    ---
+    tags:
+      - VirusTotal API
+    parameters:
+      - name: ip
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            ip:
+              type: string
+              description: IP address to look up
+              example: "8.8.8.8"
+    responses:
+      200:
+        description: VirusTotal IP address analysis results
+      400:
+        description: Missing or invalid IP address
+      500:
+        description: Server error or API request failed
+    """
+    data = request.json
+    ip_address = data.get('ip', '')
+    
+    if not ip_address:
+        return jsonify({"error": "No IP address provided"}), 400
+    
+    # Get VirusTotal API key from environment variable
+    api_key = os.getenv('VIRUSTOTAL_API_KEY', '')
+    if not api_key:
+        return jsonify({"error": "VirusTotal API key not configured on server"}), 500
+    
+    # Make request to VirusTotal API
+    try:
+        headers = {"x-apikey": api_key}
+        response = requests.get(
+            f"https://www.virustotal.com/api/v3/ip_addresses/{ip_address}", 
+            headers=headers
+        )
+        response.raise_for_status()
+        return jsonify(response.json())
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": str(e)}), 500
