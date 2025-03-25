@@ -56,39 +56,60 @@ function UnifiedSearch() {
         try {
             // Make API calls based on input type
             if (type === 'ip') {
-                // For IP lookups, get both VirusTotal and Shodan data
-                const [vtResponse, shodanResponse] = await Promise.all([
-                    axios.post('http://localhost:5000/api/v1/main/virustotal-lookup', { ip: query }),
-                    axios.post('http://localhost:5000/api/v1/main/shodan-lookup', { query })
-                ]);
+                // For IP lookups, handle VirusTotal and Shodan separately to allow partial results
+                let vtResults = null;
+                let shodanResults = null;
                 
-                setResults({
-                    ...results,
-                    vtResults: vtResponse.data,
-                    shodanResults: shodanResponse.data
-                });
+                try {
+                    const vtResponse = await axios.post('http://10.77.252.160:5000/api/v1/main/virustotal-lookup', { ip: query });
+                    vtResults = vtResponse.data;
+                } catch (vtErr) {
+                    console.error("VirusTotal API Error:", vtErr);
+                    // Continue with Shodan results
+                }
+                
+                try {
+                    const shodanResponse = await axios.post('http://10.77.252.160:5000/api/v1/main/shodan-lookup', { query });
+                    shodanResults = shodanResponse.data;
+                } catch (shodanErr) {
+                    console.error("Shodan API Error:", shodanErr);
+                    // Continue with VirusTotal results
+                }
+                
+                if (!vtResults && !shodanResults) {
+                    setError('Both VirusTotal and Shodan lookups failed. Please try again later.');
+                } else {
+                    setResults({
+                        ...results,
+                        vtResults,
+                        shodanResults
+                    });
+                }
             } 
             else if (type === 'email') {
                 // For email lookups, use the LeakCheck service
-                const emailResponse = await axios.post('http://localhost:5000/api/v1/main/check-email', { email: query });
+                const emailResponse = await axios.post('http://10.77.252.160:5000/api/v1/main/check-email', { email: query });
                 setResults({
                     ...results,
                     emailResults: emailResponse.data
                 });
             } 
             else if (type === 'domain') {
-                // For domain lookups, use both Shodan and VirusTotal (if implemented)
-                const shodanResponse = await axios.post('http://localhost:5000/api/v1/main/shodan-lookup', { query });
-                
-                // Note: You would need to implement a domain lookup in your backend for VirusTotal
-                // For now, we'll just use Shodan for domains
-                setResults({
-                    ...results,
-                    shodanResults: shodanResponse.data,
-                    domainResults: shodanResponse.data // Using Shodan data for domains for now
-                });
+                // For domain lookups, handle Shodan errors separately
+                try {
+                    const shodanResponse = await axios.post('http://10.77.252.160:5000/api/v1/main/shodan-lookup', { query });
+                    setResults({
+                        ...results,
+                        shodanResults: shodanResponse.data,
+                        domainResults: shodanResponse.data // Using Shodan data for domains for now
+                    });
+                } catch (shodanErr) {
+                    console.error("Shodan API Error for domain:", shodanErr);
+                    setError('Shodan domain lookup failed. Please try again later.');
+                }
             }
         } catch (err) {
+            // This will catch any other errors not caught by the specific try/catch blocks
             console.error("API Error:", err);
             if (err.response?.data?.error) {
                 setError(`Error: ${err.response.data.error}`);
