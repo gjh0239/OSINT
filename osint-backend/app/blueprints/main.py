@@ -91,6 +91,7 @@ def index():
     """
     return jsonify(data={'message': 'Hello, World!'})
 
+# Individual API endpoints
 # Leakcheck email breach check
 @main_bp.route('/check-email', methods=['POST'])
 def check_email_breach():
@@ -139,43 +140,13 @@ def check_email_breach():
     if not email:
         return jsonify({"error": "No email provided"}), 400
     
-    # Check cache first
-    cache_key = f"leakcheck:email:{email}"
-    cached_result = get_from_cache(cache_key)
-    if cached_result:
-        return jsonify(cached_result)
-    
-    # Not in cache, get LeakCheck API key from environment variable
-    api_key = os.getenv('LEAKCHECK_API_KEY', '')
-    if not api_key:
-        return jsonify({"error": "LeakCheck API key not configured on server"}), 500
-    
-    # LeakCheck.io API call
     try:
-        response = requests.get(f"https://leakcheck.io/api/public?key={api_key}&check={email}")
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        if not data.get('success'):
-            return jsonify({"error": data.get('message', 'Unknown error from API')}), 500
-            
-        result = {
-            "breached": data.get('found', 0) > 0,
-            "found": data.get('found', 0),
-            "exposed_data": data.get('fields', []),
-            "breaches": data.get('sources', [])
-        }
-        
-        # Store in cache
-        set_in_cache(cache_key, result, CACHE_TTL['email_breach'])
-        
+        result = process_email_breach(email)
         return jsonify(result)
-            
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# shodan lookup
+# Shodan Lookup
 @main_bp.route('/shodan-lookup', methods=['POST'])
 def shodan_lookup():
     """
@@ -208,45 +179,15 @@ def shodan_lookup():
     if not query:
         return jsonify({"error": "No IP address or domain provided"}), 400
     
-    # Check cache first
-    query_type = "ip" if query.replace('.', '').isdigit() else "domain"
-    cache_key = f"shodan:{query_type}:{query}"
-    cached_result = get_from_cache(cache_key)
-    if cached_result:
-        return jsonify(cached_result)
-    
-    # Not in cache, get Shodan API key
-    api_key = os.getenv('SHODAN_API_KEY', '')
-    if not api_key:
-        return jsonify({"error": "Shodan API key not configured on server"}), 500
-    
-    # Determine if query is IP address or hostname
     try:
-        # Make request to Shodan API
-        if query_type == "ip":
-            # Looking up specific IP
-            response = requests.get(f"https://api.shodan.io/shodan/host/{query}?key={api_key}")
-        else:
-            # Domain search
-            response = requests.get(
-                "https://api.shodan.io/shodan/host/search", 
-                params={"key": api_key, "query": f"hostname:{query}"}
-            )
-            
-        response.raise_for_status()
-        result = response.json()
-        
-        # Store in cache
-        ttl = CACHE_TTL['ip_lookup'] if query_type == "ip" else CACHE_TTL['domain_lookup']
-        set_in_cache(cache_key, result, ttl)
-        
+        result = process_shodan_query(query)
         return jsonify(result)
-            
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Virustotal ip, domain and email lookup
 @main_bp.route('/virustotal-lookup', methods=['POST'])
-def virustotal_lookup():
+def virustotal_ip_lookup():
     """
     Performs a lookup against the VirusTotal API for a given IP address.
     ---
@@ -277,32 +218,10 @@ def virustotal_lookup():
     if not ip_address:
         return jsonify({"error": "No IP address provided"}), 400
     
-    # Check cache first
-    cache_key = f"virustotal:ip:{ip_address}"
-    cached_result = get_from_cache(cache_key)
-    if cached_result:
-        return jsonify(cached_result)
-    
-    # Not in cache, get VirusTotal API key
-    api_key = os.getenv('VIRUSTOTAL_API_KEY', '')
-    if not api_key:
-        return jsonify({"error": "VirusTotal API key not configured on server"}), 500
-    
-    # Make request to VirusTotal API
     try:
-        headers = {"x-apikey": api_key}
-        response = requests.get(
-            f"https://www.virustotal.com/api/v3/ip_addresses/{ip_address}", 
-            headers=headers
-        )
-        response.raise_for_status()
-        result = response.json()
-        
-        # Store in cache
-        set_in_cache(cache_key, result, CACHE_TTL['ip_lookup'])
-        
+        result = process_virustotal_ip(ip_address)
         return jsonify(result)
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @main_bp.route('/virustotal-domain-lookup', methods=['POST'])
@@ -337,32 +256,10 @@ def virustotal_domain_lookup():
     if not domain:
         return jsonify({"error": "No domain provided"}), 400
     
-    # Check cache first
-    cache_key = f"virustotal:domain:{domain}"
-    cached_result = get_from_cache(cache_key)
-    if cached_result:
-        return jsonify(cached_result)
-    
-    # Not in cache, get VirusTotal API key
-    api_key = os.getenv('VIRUSTOTAL_API_KEY', '')
-    if not api_key:
-        return jsonify({"error": "VirusTotal API key not configured on server"}), 500
-    
-    # Make request to VirusTotal API
     try:
-        headers = {"x-apikey": api_key}
-        response = requests.get(
-            f"https://www.virustotal.com/api/v3/domains/{domain}", 
-            headers=headers
-        )
-        response.raise_for_status()
-        result = response.json()
-        
-        # Store in cache
-        set_in_cache(cache_key, result, CACHE_TTL['domain_lookup'])
-        
+        result = process_virustotal_domain(domain)
         return jsonify(result)
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @main_bp.route('/virustotal-email-lookup', methods=['POST'])
@@ -397,35 +294,168 @@ def virustotal_email_lookup():
     if not email:
         return jsonify({"error": "No email address provided"}), 400
     
-    # Check cache first
-    cache_key = f"virustotal:email:{email}"
-    cached_result = get_from_cache(cache_key)
-    if cached_result:
-        return jsonify(cached_result)
-    
-    # Not in cache, get VirusTotal API key
-    api_key = os.getenv('VIRUSTOTAL_API_KEY', '')
-    if not api_key:
-        return jsonify({"error": "VirusTotal API key not configured on server"}), 500
-    
-    # Make request to VirusTotal API using the search endpoint
     try:
-        headers = {"x-apikey": api_key}
-        response = requests.get(
-            "https://www.virustotal.com/api/v3/search",
-            params={"query": email}, 
-            headers=headers
-        )
-        response.raise_for_status()
-        result = response.json()
-        
-        # Store in cache
-        set_in_cache(cache_key, result, CACHE_TTL['email_lookup'])
-        
+        result = process_virustotal_email(email)
         return jsonify(result)
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# URLScan.io lookup
+@main_bp.route('/urlscan-lookup', methods=['POST'])
+def urlscan_lookup():
+    """
+    Look up information about a URL/domain using urlscan.io API.
+    ---
+    tags:
+      - Domain Security API
+    parameters:
+      - name: domain
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            domain:
+              type: string
+              description: Domain to scan
+              example: "example.com"
+    responses:
+      200:
+        description: URLScan.io scan results
+      400:
+        description: Missing or invalid domain
+      500:
+        description: Server error
+    """
+    data = request.json
+    domain = data.get('domain', '')
+    
+    if not domain:
+        return jsonify({"error": "No domain provided"}), 400
+    
+    try:
+        result = process_urlscan(domain)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# WHOIS and DNS lookups
+@main_bp.route('/whois-lookup', methods=['POST'])
+def whois_lookup():
+    """
+    Look up WHOIS data for a domain.
+    ---
+    tags:
+      - Domain Security API
+    parameters:
+      - name: domain
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            domain:
+              type: string
+              description: Domain to lookup
+              example: "example.com"
+    responses:
+      200:
+        description: WHOIS lookup results
+      400:
+        description: Missing or invalid domain
+      500:
+        description: Server error
+    """
+    data = request.json
+    domain = data.get('domain', '')
+    
+    if not domain:
+        return jsonify({"error": "No domain provided"}), 400
+    
+    try:
+        result = process_whois(domain)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@main_bp.route('/dns-lookup', methods=['POST'])
+def dns_lookup():
+    """
+    Look up DNS records for a domain.
+    ---
+    tags:
+      - Domain Security API
+    parameters:
+      - name: domain
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            domain:
+              type: string
+              description: Domain to lookup
+              example: "example.com"
+    responses:
+      200:
+        description: DNS records lookup results
+      400:
+        description: Missing or invalid domain
+      500:
+        description: Server error
+    """
+    data = request.json
+    domain = data.get('domain', '')
+    
+    if not domain:
+        return jsonify({"error": "No domain provided"}), 400
+    
+    try:
+        result = process_dns(domain)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# AbuseIPDB lookup
+@main_bp.route('/abuseipdb-lookup', methods=['POST'])
+def abuseipdb_lookup():
+    """
+    Look up IP reputation using AbuseIPDB.
+    ---
+    tags:
+      - IP Security API
+    parameters:
+      - name: ip
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            ip:
+              type: string
+              description: IP address to check
+              example: "8.8.8.8"
+    responses:
+      200:
+        description: AbuseIPDB lookup results
+      400:
+        description: Missing or invalid IP address
+      500:
+        description: Server error
+    """
+    data = request.json
+    ip = data.get('ip', '')
+    
+    if not ip:
+        return jsonify({"error": "No IP address provided"}), 400
+    
+    try:
+        result = process_abuseipdb(ip)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Unified search endpoint
 @main_bp.route('/unified-search', methods=['POST'])
 def unified_search():
     """
@@ -508,16 +538,19 @@ def unified_search():
                 api_usage["total_calls"] += 3
                 
             elif input_type == "email":
-                # For emails, query LeakCheck
+                # For emails, query LeakCheck and VirusTotal
                 leakcheck_result = process_email_breach(value)
+                vt_result = process_virustotal_email(value)
                 
                 results[value] = {
                     "type": "email",
-                    "leakcheck": leakcheck_result
+                    "leakcheck": leakcheck_result,
+                    "virustotal": vt_result
                 }
                 
                 api_usage["leakcheck"] += 1
-                api_usage["total_calls"] += 1
+                api_usage["virustotal_email"] += 1
+                api_usage["total_calls"] += 2
                 
             elif input_type == "domain":
                 # For domains, query multiple services
@@ -557,6 +590,7 @@ def unified_search():
     
     return jsonify(response)
 
+# Helper functions
 def detect_input_type(value):
     """Detect if the input is an IP, email or domain"""
     # IP address pattern
@@ -574,6 +608,7 @@ def detect_input_type(value):
         return "domain"
     return None
 
+# Process functions for each API
 def process_virustotal_ip(ip):
     """Process a VirusTotal IP lookup without making a full HTTP request"""
     # Check cache first
@@ -696,251 +731,34 @@ def process_email_breach(email):
     
     return result
 
-@main_bp.route('/urlscan-lookup', methods=['POST'])
-def urlscan_lookup():
-    """
-    Look up information about a URL/domain using urlscan.io API.
-    ---
-    tags:
-      - Domain Security API
-    parameters:
-      - name: domain
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            domain:
-              type: string
-              description: Domain to scan
-              example: "example.com"
-    responses:
-      200:
-        description: URLScan.io scan results
-      400:
-        description: Missing or invalid domain
-      500:
-        description: Server error
-    """
-    data = request.json
-    domain = data.get('domain', '')
-    
-    if not domain:
-        return jsonify({"error": "No domain provided"}), 400
-    
-    cache_key = f"urlscan:domain:{domain}"
+def process_virustotal_email(email):
+    """Process a VirusTotal email lookup using the search endpoint"""
+    # Check cache first
+    cache_key = f"virustotal:email:{email}"
     cached_result = get_from_cache(cache_key)
     if cached_result:
-        return jsonify(cached_result)
+        return cached_result
     
-    api_key = os.getenv('URLSCAN_API_KEY', '')
+    # Not in cache, get VirusTotal API key
+    api_key = os.getenv('VIRUSTOTAL_API_KEY', '')
     if not api_key:
-        return jsonify({"error": "urlscan.io API key not configured"}), 500
+        raise Exception("VirusTotal API key not configured on server")
     
-    headers = {"API-Key": api_key, "Content-Type": "application/json"}
-    scan_data = {"url": domain, "visibility": "public"}
+    # Make request to VirusTotal API using the search endpoint
+    headers = {"x-apikey": api_key}
+    response = requests.get(
+        "https://www.virustotal.com/api/v3/search",
+        params={"query": email}, 
+        headers=headers
+    )
+    response.raise_for_status()
+    result = response.json()
     
-    try:
-        response = requests.post(
-            "https://urlscan.io/api/v1/scan/",
-            headers=headers,
-            json=scan_data
-        )
-        response.raise_for_status()
-        
-        scan_result = response.json()
-        set_in_cache(cache_key, scan_result, CACHE_TTL['domain_lookup'])
-        
-        return jsonify(scan_result)
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
+    # Store in cache
+    set_in_cache(cache_key, result, CACHE_TTL['email_lookup'])
+    
+    return result
 
-@main_bp.route('/whois-lookup', methods=['POST'])
-def whois_lookup():
-    """
-    Look up WHOIS data for a domain.
-    ---
-    tags:
-      - Domain Security API
-    parameters:
-      - name: domain
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            domain:
-              type: string
-              description: Domain to lookup
-              example: "example.com"
-    responses:
-      200:
-        description: WHOIS lookup results
-      400:
-        description: Missing or invalid domain
-      500:
-        description: Server error
-    """
-    data = request.json
-    domain = data.get('domain', '')
-    
-    if not domain:
-        return jsonify({"error": "No domain provided"}), 400
-    
-    cache_key = f"whois:domain:{domain}"
-    cached_result = get_from_cache(cache_key)
-    if cached_result:
-        return jsonify(cached_result)
-    
-    try:
-        import whois
-        result = whois.whois(domain)
-        
-        # Convert complex objects to strings for JSON serialization
-        whois_data = {
-            "domain_name": result.domain_name,
-            "registrar": result.registrar,
-            "creation_date": str(result.creation_date),
-            "expiration_date": str(result.expiration_date),
-            "updated_date": str(result.updated_date),
-            "name_servers": result.name_servers,
-            "status": result.status,
-            "emails": result.emails,
-            "registrant": result.registrant,
-            "admin": result.admin,
-            "tech": result.tech,
-            "raw": result.text
-        }
-        
-        set_in_cache(cache_key, whois_data, CACHE_TTL['domain_lookup'])
-        return jsonify(whois_data)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@main_bp.route('/dns-lookup', methods=['POST'])
-def dns_lookup():
-    """
-    Look up DNS records for a domain.
-    ---
-    tags:
-      - Domain Security API
-    parameters:
-      - name: domain
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            domain:
-              type: string
-              description: Domain to lookup
-              example: "example.com"
-    responses:
-      200:
-        description: DNS records lookup results
-      400:
-        description: Missing or invalid domain
-      500:
-        description: Server error
-    """
-    data = request.json
-    domain = data.get('domain', '')
-    
-    if not domain:
-        return jsonify({"error": "No domain provided"}), 400
-    
-    cache_key = f"dns:domain:{domain}"
-    cached_result = get_from_cache(cache_key)
-    if cached_result:
-        return jsonify(cached_result)
-    
-    try:
-        import dns.resolver
-        result = {}
-        record_types = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'SOA', 'CNAME']
-        
-        for record_type in record_types:
-            try:
-                answers = dns.resolver.resolve(domain, record_type)
-                result[record_type] = [str(answer) for answer in answers]
-            except dns.resolver.NoAnswer:
-                result[record_type] = []
-            except Exception as e:
-                result[record_type] = [f"Error: {str(e)}"]
-        
-        set_in_cache(cache_key, result, CACHE_TTL['domain_lookup'])
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@main_bp.route('/abuseipdb-lookup', methods=['POST'])
-def abuseipdb_lookup():
-    """
-    Look up IP reputation using AbuseIPDB.
-    ---
-    tags:
-      - IP Security API
-    parameters:
-      - name: ip
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            ip:
-              type: string
-              description: IP address to check
-              example: "8.8.8.8"
-    responses:
-      200:
-        description: AbuseIPDB lookup results
-      400:
-        description: Missing or invalid IP address
-      500:
-        description: Server error
-    """
-    data = request.json
-    ip = data.get('ip', '')
-    
-    if not ip:
-        return jsonify({"error": "No IP address provided"}), 400
-    
-    cache_key = f"abuseipdb:ip:{ip}"
-    cached_result = get_from_cache(cache_key)
-    if cached_result:
-        return jsonify(cached_result)
-    
-    api_key = os.getenv('ABUSEIPDB_API_KEY', '')
-    if not api_key:
-        return jsonify({"error": "AbuseIPDB API key not configured"}), 500
-    
-    headers = {
-        'Accept': 'application/json',
-        'Key': api_key
-    }
-    
-    params = {
-        'ipAddress': ip,
-        'maxAgeInDays': 90,
-        'verbose': True
-    }
-    
-    try:
-        response = requests.get(
-            'https://api.abuseipdb.com/api/v2/check',
-            headers=headers,
-            params=params
-        )
-        response.raise_for_status()
-        
-        result = response.json()
-        set_in_cache(cache_key, result, CACHE_TTL['ip_lookup'])
-        
-        return jsonify(result)
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
-
-# Helper functions for unified search
 def process_urlscan(domain):
     """Process a URLScan.io lookup"""
     cache_key = f"urlscan:domain:{domain}"
