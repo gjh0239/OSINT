@@ -100,6 +100,30 @@ function UnifiedSearch() {
                                     <span className="stat-value">{apiStats.leakcheck}</span>
                                 </div>
                             )}
+                            {apiStats.abuseipdb > 0 && (
+                                <div className="api-stat-item">
+                                    <span className="stat-label">AbuseIPDB:</span>
+                                    <span className="stat-value">{apiStats.abuseipdb}</span>
+                                </div>
+                            )}
+                            {apiStats.whois > 0 && (
+                                <div className="api-stat-item">
+                                    <span className="stat-label">WHOIS:</span>
+                                    <span className="stat-value">{apiStats.whois}</span>
+                                </div>
+                            )}
+                            {apiStats.dns > 0 && (
+                                <div className="api-stat-item">
+                                    <span className="stat-label">DNS:</span>
+                                    <span className="stat-value">{apiStats.dns}</span>
+                                </div>
+                            )}
+                            {apiStats.urlscan > 0 && (
+                                <div className="api-stat-item">
+                                    <span className="stat-label">URLScan:</span>
+                                    <span className="stat-value">{apiStats.urlscan}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -127,6 +151,7 @@ function UnifiedSearch() {
     const renderIPResult = (ip, data) => {
         const vtData = data.virustotal?.data;
         const shodanData = data.shodan;
+        const abuseipdbData = data.abuseipdb?.data;
         
         return (
             <div key={ip} className="results-section">
@@ -135,6 +160,7 @@ function UnifiedSearch() {
                     <div className="source-badges">
                         {vtData && <span className="source-badge vt-badge">VirusTotal</span>}
                         {shodanData && <span className="source-badge shodan-badge">Shodan</span>}
+                        {abuseipdbData && <span className="source-badge abuseipdb-badge">AbuseIPDB</span>}
                     </div>
                 </div>
                 
@@ -150,6 +176,28 @@ function UnifiedSearch() {
                         {renderVTNetworkInfo(vtData.attributes)}
                         
                         {activeView === 'detailed' && renderVTDetailedInfo(vtData.attributes)}
+                    </div>
+                )}
+                
+                {/* Show AbuseIPDB results */}
+                {abuseipdbData && (
+                    <div className="vt-info-section abuseipdb-section">
+                        <h4>IP Abuse History</h4>
+                        <div className="abuseipdb-summary">
+                            <div className="abuse-score">
+                                <strong>Abuse Confidence Score:</strong> 
+                                <span className={`score-value ${abuseipdbData.abuseConfidenceScore > 50 ? 'high-risk' : 
+                                    abuseipdbData.abuseConfidenceScore > 20 ? 'medium-risk' : 'low-risk'}`}>
+                                    {abuseipdbData.abuseConfidenceScore}%
+                                </span>
+                            </div>
+                            <div className="abuse-details">
+                                <p><strong>Total Reports:</strong> {abuseipdbData.totalReports || 0}</p>
+                                <p><strong>Last Reported:</strong> {abuseipdbData.lastReportedAt || 'Never'}</p>
+                                <p><strong>Usage Type:</strong> {abuseipdbData.usageType || 'Unknown'}</p>
+                                <p><strong>ISP:</strong> {abuseipdbData.isp || 'Unknown'}</p>
+                            </div>
+                        </div>
                     </div>
                 )}
                 
@@ -305,6 +353,9 @@ function UnifiedSearch() {
     const renderDomainResult = (domain, data) => {
         const vtData = data.virustotal?.data;
         const shodanData = data.shodan;
+        const whoisData = data.whois;
+        const dnsData = data.dns;
+        const urlscanData = data.urlscan;
         
         return (
             <div key={domain} className="results-section">
@@ -313,6 +364,9 @@ function UnifiedSearch() {
                     <div className="source-badges">
                         {vtData && <span className="source-badge vt-badge">VirusTotal</span>}
                         {shodanData && <span className="source-badge shodan-badge">Shodan</span>}
+                        {whoisData && <span className="source-badge whois-badge">WHOIS</span>}
+                        {dnsData && <span className="source-badge dns-badge">DNS</span>}
+                        {urlscanData && <span className="source-badge urlscan-badge">URLScan</span>}
                     </div>
                 </div>
                 
@@ -338,6 +392,119 @@ function UnifiedSearch() {
                     </div>
                 )}
                 
+                {/* WHOIS Information */}
+                {whoisData && !whoisData.error && (
+                    <div className="vt-info-section whois-section">
+                        <h4>WHOIS Information</h4>
+                        <div className="whois-grid">
+                            {whoisData.registrar && (
+                                <div className="whois-item">
+                                    <strong>Registrar:</strong> {whoisData.registrar}
+                                </div>
+                            )}
+                            {whoisData.creation_date && (
+                                <div className="whois-item">
+                                    <strong>Created:</strong> {whoisData.creation_date}
+                                </div>
+                            )}
+                            {whoisData.expiration_date && (
+                                <div className="whois-item">
+                                    <strong>Expires:</strong> {whoisData.expiration_date}
+                                </div>
+                            )}
+                            {whoisData.name_servers && whoisData.name_servers.length > 0 && (
+                                <div className="whois-item">
+                                    <strong>Name Servers:</strong> {Array.isArray(whoisData.name_servers) ? 
+                                        whoisData.name_servers.join(', ') : whoisData.name_servers}
+                                </div>
+                            )}
+                        </div>
+                        
+                        {activeView === 'detailed' && whoisData.raw && (
+                            <div className="raw-whois">
+                                <h5>Raw WHOIS Data:</h5>
+                                <pre className="whois-data">{whoisData.raw}</pre>
+                            </div>
+                        )}
+                    </div>
+                )}
+                
+                {/* DNS Records */}
+                {dnsData && !dnsData.error && (
+                    <div className="vt-info-section dns-section">
+                        <h4>DNS Records</h4>
+                        <div className="dns-records">
+                            {dnsData.A && dnsData.A.length > 0 && (
+                                <div className="dns-record-group">
+                                    <h5>A Records:</h5>
+                                    <div className="dns-values">
+                                        {dnsData.A.map((record, idx) => (
+                                            <span key={idx} className="dns-value">{record}</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {dnsData.AAAA && dnsData.AAAA.length > 0 && (
+                                <div className="dns-record-group">
+                                    <h5>AAAA Records:</h5>
+                                    <div className="dns-values">
+                                        {dnsData.AAAA.map((record, idx) => (
+                                            <span key={idx} className="dns-value">{record}</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {dnsData.MX && dnsData.MX.length > 0 && (
+                                <div className="dns-record-group">
+                                    <h5>MX Records:</h5>
+                                    <div className="dns-values">
+                                        {dnsData.MX.map((record, idx) => (
+                                            <span key={idx} className="dns-value">{record}</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {dnsData.TXT && dnsData.TXT.length > 0 && activeView === 'detailed' && (
+                                <div className="dns-record-group">
+                                    <h5>TXT Records:</h5>
+                                    <div className="dns-values-txt">
+                                        {dnsData.TXT.map((record, idx) => (
+                                            <div key={idx} className="dns-txt-value">{record}</div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+                
+                {/* URLScan Information */}
+                {urlscanData && urlscanData.message && (
+                    <div className="vt-info-section urlscan-section">
+                        <h4>URLScan Analysis</h4>
+                        <div className="urlscan-info">
+                            <p><strong>Scan Status:</strong> {urlscanData.message}</p>
+                            {urlscanData.uuid && (
+                                <p>
+                                    <strong>Results:</strong> 
+                                    <a href={`https://urlscan.io/result/${urlscanData.uuid}/`} 
+                                       target="_blank" 
+                                       rel="noopener noreferrer" 
+                                       className="urlscan-link">
+                                        View Scan Results
+                                    </a>
+                                </p>
+                            )}
+                            {urlscanData.visibility && (
+                                <p><strong>Visibility:</strong> {urlscanData.visibility}</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+                
                 {/* Shodan Domain Search Results */}
                 {shodanData && shodanData.matches && shodanData.matches.length > 0 && (
                     <div className="vt-info-section">
@@ -359,11 +526,25 @@ function UnifiedSearch() {
                 )}
                 
                 {/* No results message */}
-                {(!shodanData || !shodanData.matches || shodanData.matches.length === 0) && !vtData && (
+                {(!shodanData || !shodanData.matches || shodanData.matches.length === 0) && 
+                 !vtData && !whoisData && !dnsData && !urlscanData && (
                     <div className="no-results">
                         <p>No information found for this domain.</p>
                     </div>
                 )}
+                
+                <div className="view-controls">
+                    <button 
+                        className={activeView === 'combined' ? 'active' : ''} 
+                        onClick={() => setActiveView('combined')}>
+                        Summary View
+                    </button>
+                    <button 
+                        className={activeView === 'detailed' ? 'active' : ''} 
+                        onClick={() => setActiveView('detailed')}>
+                        Detailed View
+                    </button>
+                </div>
             </div>
         );
     };

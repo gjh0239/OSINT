@@ -682,3 +682,139 @@
         flex-direction: column;
     }
 }
+
+/* New styles for AbuseIPDB */
+.abuseipdb-section {
+    border-left: 4px solid #e74c3c;
+}
+
+.abuseipdb-badge {
+    background-color: #e74c3c;
+    color: white;
+}
+
+.abuse-score {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+}
+
+.score-value {
+    margin-left: 0.5rem;
+    font-weight: bold;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.high-risk {
+    background-color: #dc3545;
+    color: white;
+}
+
+.medium-risk {
+    background-color: #ffc107;
+    color: #343a40;
+}
+
+.low-risk {
+    background-color: #28a745;
+    color: white;
+}
+
+/* WHOIS styles */
+.whois-section {
+    border-left: 4px solid #3498db;
+}
+
+.whois-badge {
+    background-color: #3498db;
+    color: white;
+}
+
+.whois-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.whois-item {
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.raw-whois {
+    margin-top: 1.5rem;
+}
+
+/* DNS styles */
+.dns-section {
+    border-left: 4px solid #9b59b6;
+}
+
+.dns-badge {
+    background-color: #9b59b6;
+    color: white;
+}
+
+.dns-records {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.dns-record-group h5 {
+    margin-bottom: 0.5rem;
+}
+
+.dns-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.dns-value {
+    background-color: #9b59b6;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-family: monospace;
+}
+
+.dns-values-txt {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.dns-txt-value {
+    background-color: #f8f9fa;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.85rem;
+    word-break: break-all;
+}
+
+/* URLScan styles */
+.urlscan-section {
+    border-left: 4px solid #27ae60;
+}
+
+.urlscan-badge {
+    background-color: #27ae60;
+    color: white;
+}
+
+.urlscan-link {
+    margin-left: 0.5rem;
+    color: #27ae60;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.urlscan-link:hover {
+    text-decoration: underline;
+}
