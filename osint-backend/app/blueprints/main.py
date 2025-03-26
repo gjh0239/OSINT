@@ -1,129 +1,184 @@
 from flask import Blueprint, request, jsonify
-import requests
 import os
+import re
+import logging
 from dotenv import load_dotenv
+import redis
+from app.blueprints.GET_API import (
+    VirusTotalAPI, ShodanAPI, LeakCheckAPI, 
+    URLScanAPI, AbuseIPDBAPI, DNSService, WHOISService
+)
 
 main_bp = Blueprint('main', __name__)
 
+# Load environment variables
 load_dotenv()
 
-@main_bp.route('/query', methods=['GET'])
-def query_api():
-    user_input = request.args.get('input', '')
-    if not user_input:
-        return jsonify({"error": "No input provided"}), 400
+#TODO: Postgres migration
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0') # TODO: Replace default with production URL
 
-    # Example API call
+# Configure Logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Redis 
+#TODO: WILL MIGRATE TO POSTGRES LATER
+redis_client = redis.StrictRedis.from_url(REDIS_URL) # Strictredis does not provide backwards compatibility - use redis.Redis instead
+
+# Initialize API classes
+virus_total_api = VirusTotalAPI()
+shodan_api = ShodanAPI()
+leak_check_api = LeakCheckAPI()
+url_scan_api = URLScanAPI()
+abuse_ipdb_api = AbuseIPDBAPI()
+dns_service = DNSService()
+whois_service = WHOISService()
+
+def detect_input_type(value):
+    """Detect if the input is an IP, email or domain"""
+    # IP address pattern
+    ip_pattern = re.compile(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+    # Email pattern
+    email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+    # Domain pattern (simple version)
+    domain_pattern = re.compile(r'^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}$')
+    
+    if ip_pattern.match(value):
+        return "ip"
+    elif email_pattern.match(value):
+        return "email"
+    elif domain_pattern.match(value):
+        return "domain"
+    return None
+
+def ip_lookup(value, api_usage, errors):
+    
+    vt_result = None
+    shodan_result = None
+    abuseipdb_result = None
+    
     try:
-        response = requests.get(f"https://api.example.com/search?q={user_input}")
-        response.raise_for_status()  # Raise an error for failed requests
-        return jsonify(response.json())
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
-
-# Add the index route from modules/main/route.py
-@main_bp.route('/', methods=['GET'])
-def index():
-    """ Example endpoint with simple greeting.
-    ---
-    tags:
-      - Example API
-    responses:
-      200:
-        description: A simple greeting
-        schema:
-          type: object
-          properties:
-            data:
-              type: object
-              properties:
-                message:
-                  type: string
-                  example: "Hello World!"
-    """
-    return jsonify(data={'message': 'Hello, World!'})
-
-# Leakcheck email breach check
-@main_bp.route('/check-email', methods=['POST'])
-def check_email_breach():
-    """
-    Check if an email has been involved in data breaches using LeakCheck.io API.
-    ---
-    tags:
-      - Email Security API
-    parameters:
-      - name: email
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            email:
-              type: string
-              description: Email address to check
-              example: "user@example.com"
-    responses:
-      200:
-        description: Email breach check results
-        schema:
-          type: object
-          properties:
-            breached:
-              type: boolean
-            found:
-              type: integer
-            exposed_data:
-              type: array
-              items:
-                type: string
-            breaches:
-              type: array
-              items:
-                type: object
-      400:
-        description: Missing or invalid email
-      500:
-        description: Server error
-    """
-    data = request.json
-    email = data.get('email', '')
+        vt_result = virus_total_api.lookup_query(value)
+        api_usage['virustotal_ip'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"VirusTotal error: {str(e)}")
     
-    if not email:
-        return jsonify({"error": "No email provided"}), 400
-    
-    # Get LeakCheck API key from environment variable
-    api_key = os.getenv('LEAKCHECK_API_KEY', '')
-    if not api_key:
-        return jsonify({"error": "LeakCheck API key not configured on server"}), 500
-    
-    # LeakCheck.io API call
     try:
-        response = requests.get(f"https://leakcheck.io/api/public?key={api_key}&check={email}")
-        response.raise_for_status()
+        shodan_result = shodan_api.lookup_query(value)
+        api_usage['shodan'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"Shodan error: {str(e)}")
         
-        data = response.json()
+    try:
+        abuseipdb_result = abuse_ipdb_api.lookup_query(value)
+        api_usage['abuseipdb'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"AbuseIPDB error: {str(e)}")
+    
+    results = {
+        'type': 'ip',
+        'virustotal': vt_result,
+        'shodan': shodan_result,
+        'abuseipdb': abuseipdb_result
+    }
         
-        if not data.get('success'):
-            return jsonify({"error": data.get('message', 'Unknown error from API')}), 500
-            
-        return jsonify({
-            "breached": data.get('found', 0) > 0,
-            "found": data.get('found', 0),
-            "exposed_data": data.get('fields', []),
-            "breaches": data.get('sources', [])
-        })
-            
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
+    return results
 
-# shodan lookup
-@main_bp.route('/shodan-lookup', methods=['POST'])
-def shodan_lookup():
+def email_lookup(value, api_usage, errors):
+    
+    leakcheck_result = None
+    vt_result = None
+    
+    try:
+        leakcheck_result = leak_check_api.lookup_query(value)
+        api_usage['leakcheck'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"LeakCheck error: {str(e)}")
+        
+    try:
+        vt_result = virus_total_api.lookup_query(value)
+        api_usage['virustotal_email'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"VirusTotal error: {str(e)}")
+        
+    results = {
+        'type': 'email',
+        'leakcheck': leakcheck_result,
+        'virustotal': vt_result
+    }
+    
+    return results
+
+def domain_lookup(value, api_usage, errors):
+    
+    urlscan_result = None
+    whois_result = None
+    dns_result = None
+    vt_result = None
+    shodan_result = None
+    
+    try:
+        urlscan_result = url_scan_api.lookup_query(value)
+        api_usage['urlscan'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"URLScan error: {str(e)}")
+        
+    try:
+        whois_result = whois_service.get_whois_info(value)
+        api_usage['whois'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"Whois error: {str(e)}")
+    
+    try:
+        dns_result = dns_service.get_dns_records(value)
+        api_usage['dns'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"DNS error: {str(e)}")
+        
+    try:
+        vt_result = virus_total_api.lookup_query(value)
+        api_usage['virustotal_domain'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"VirusTotal error: {str(e)}")
+        
+    try:
+        shodan_result = shodan_api.lookup_query(value)
+        api_usage['shodan'] += 1
+        api_usage['total_calls'] += 1
+    except Exception as e:
+        errors.append(f"Shodan error: {str(e)}")
+    
+    results = {
+        'type': 'domain',
+        'urlscan': urlscan_result,
+        'whois': whois_result,
+        'dns': dns_result,
+        'virustotal': vt_result,
+        'shodan': shodan_result
+    }
+    
+    return results
+
+@main_bp.route('/unified-search', methods=['POST'])
+def unified_search():
     """
-    Look up information about an IP address or domain using Shodan API.
+    Unified search endpoint that detects input type and processes accordingly.
+    Handles single or multiple comma-separated values.
     ---
     tags:
-      - Shodan API
+      - Unified Search API
     parameters:
       - name: query
         in: body
@@ -133,45 +188,68 @@ def shodan_lookup():
           properties:
             query:
               type: string
-              description: IP address or domain to look up
-              example: "8.8.8.8"
+              description: IP address, email, domain, or comma-separated list
+              example: "8.8.8.8,1.1.1.1"
     responses:
       200:
-        description: Shodan lookup results
+        description: Unified search results
       400:
         description: Missing or invalid query
       500:
         description: Server error
     """
     data = request.json
-    query = data.get('query', '')
+    query = data.get('query', '').strip()
     
     if not query:
-        return jsonify({"error": "No IP address or domain provided"}), 400
+        return jsonify({"error": "No search query provided"}), 400
     
-    # Get Shodan API key from environment variable
-    api_key = os.getenv('SHODAN_API_KEY', '')
-    if not api_key:
-        return jsonify({"error": "Shodan API key not configured on server"}), 500
+    # Parse comma-separated values (with or without spaces)
+    # Strip http/https prefixes and split by commas
+    cleaned_query = re.sub(r'^https?://', '', query)
+    values = [re.sub(r'^https?://', '', val.strip()) for val in re.split(r',\s*', cleaned_query) if val.strip()]
     
-    # Determine if query is IP address or hostname
-    endpoint = ""
-    if query.replace('.', '').isdigit():  # Simple check for IP format
-        # Looking up specific IP
-        endpoint = f"https://api.shodan.io/shodan/host/{query}"
-    else:
-        # Domain search
-        endpoint = "https://api.shodan.io/shodan/host/search"
+    # Results dictionary
+    results = {}
+    api_usage = {       #TODO: Add new APIs here for frontend to track
+        "virustotal_ip": 0,
+        "virustotal_domain": 0,
+        "virustotal_email": 0,
+        "shodan": 0,
+        "leakcheck": 0,
+        "abuseipdb": 0,
+        "whois": 0,
+        "dns": 0,
+        "urlscan": 0,
+        "total_calls": 0
+    }
     
-    try:
-        # Make request to Shodan API
-        params = {"key": api_key}
-        if endpoint.endswith("search"):
-            params["query"] = f"hostname:{query}"
-            
-        response = requests.get(endpoint, params=params)
-        response.raise_for_status()
-        return jsonify(response.json())
-            
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
+    errors = []
+    
+    for value in values:
+        
+        # Detect input type
+        input_type = detect_input_type(value)
+        
+        if not input_type:
+            errors.append(f"Could not determine type for: {value}")
+            continue
+        
+        #Process the value based on the determined type
+        if input_type == "ip":
+            results[value] = ip_lookup(value, api_usage, errors)
+        elif input_type == "email":
+            results[value] = email_lookup(value, api_usage, errors)
+        elif input_type == "domain":
+            results[value] = domain_lookup(value, api_usage, errors)
+    
+    # Prepare final response
+    response = {
+        'results': results,
+        'api_usage': api_usage,
+        'errors': errors,
+        'query_count': len(values),
+        'success_count': len(results),        
+    }
+    
+    return jsonify(response)
