@@ -67,6 +67,9 @@ function UnifiedSearch() {
 
         return (
             <>
+                {/* Display API-specific errors if any */}
+                {renderApiErrors()}
+
                 {/* Display API usage statistics */}
                 {apiStats && (
                     <div className="api-stats-section">
@@ -145,6 +148,33 @@ function UnifiedSearch() {
                 })}
             </>
         );
+    };
+    
+    // New function to render API-specific errors
+    const renderApiErrors = () => {
+        if (!error) return null;
+        
+        // Extract errors from the error message if it contains multiple errors
+        const errorString = error.toString();
+        if (errorString.includes('error(s):')) {
+            const errorParts = errorString.split(': ');
+            if (errorParts.length > 1) {
+                const errorsList = errorParts[1].split('; ');
+                
+                return (
+                    <div className="api-errors-section">
+                        <h4>API Errors</h4>
+                        <ul className="api-errors-list">
+                            {errorsList.map((err, index) => (
+                                <li key={index} className="api-error-item">{err}</li>
+                            ))}
+                        </ul>
+                    </div>
+                );
+            }
+        }
+        
+        return null;
     };
 
     // Render IP analysis result
@@ -669,7 +699,7 @@ function UnifiedSearch() {
                 </div>
             </form>
 
-            {error && <div className="error-message">{error}</div>}
+            {error && !error.includes('error(s):') && <div className="error-message">{error}</div>}
 
             <div className="results-container">
                 {results && renderSearchResults()}

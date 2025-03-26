@@ -55,26 +55,31 @@ def detect_input_type(value):
     return None
 
 def ip_lookup(value, api_usage, errors):
+    
+    vt_result = None
+    shodan_result = None
+    abuseipdb_result = None
+    
     try:
         vt_result = virus_total_api.lookup_query(value)
         api_usage['virustotal_ip'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"VirusTotal error: {str(e)}")
     
     try:
         shodan_result = shodan_api.lookup_query(value)
         api_usage['shodan'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"Shodan error: {str(e)}")
         
     try:
         abuseipdb_result = abuse_ipdb_api.lookup_query(value)
         api_usage['abuseipdb'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"AbuseIPDB error: {str(e)}")
     
     results = {
         'type': 'ip',
@@ -86,19 +91,23 @@ def ip_lookup(value, api_usage, errors):
     return results
 
 def email_lookup(value, api_usage, errors):
+    
+    leakcheck_result = None
+    vt_result = None
+    
     try:
         leakcheck_result = leak_check_api.lookup_query(value)
         api_usage['leakcheck'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"LeakCheck error: {str(e)}")
         
     try:
         vt_result = virus_total_api.lookup_query(value)
         api_usage['virustotal_email'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"VirusTotal error: {str(e)}")
         
     results = {
         'type': 'email',
@@ -109,40 +118,47 @@ def email_lookup(value, api_usage, errors):
     return results
 
 def domain_lookup(value, api_usage, errors):
+    
+    urlscan_result = None
+    whois_result = None
+    dns_result = None
+    vt_result = None
+    shodan_result = None
+    
     try:
         urlscan_result = url_scan_api.lookup_query(value)
         api_usage['urlscan'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"URLScan error: {str(e)}")
         
     try:
         whois_result = whois_service.get_whois_info(value)
         api_usage['whois'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"Whois error: {str(e)}")
     
     try:
         dns_result = dns_service.get_dns_records(value)
         api_usage['dns'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"DNS error: {str(e)}")
         
     try:
         vt_result = virus_total_api.lookup_query(value)
         api_usage['virustotal_domain'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"VirusTotal error: {str(e)}")
         
     try:
         shodan_result = shodan_api.lookup_query(value)
         api_usage['shodan'] += 1
         api_usage['total_calls'] += 1
     except Exception as e:
-        errors.append(str(e))
+        errors.append(f"Shodan error: {str(e)}")
     
     results = {
         'type': 'domain',
@@ -189,7 +205,9 @@ def unified_search():
         return jsonify({"error": "No search query provided"}), 400
     
     # Parse comma-separated values (with or without spaces)
-    values = [val.strip() for val in re.split(r',\s*', query) if val.strip()]
+    # Strip http/https prefixes and split by commas
+    cleaned_query = re.sub(r'^https?://', '', query)
+    values = [re.sub(r'^https?://', '', val.strip()) for val in re.split(r',\s*', cleaned_query) if val.strip()]
     
     # Results dictionary
     results = {}

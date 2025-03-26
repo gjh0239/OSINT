@@ -118,14 +118,14 @@ class GET_API:
         
         except requests.exceptions.RequestException as e:
             logger.error(f"API request failed: {str(e)}")
-            return Exception(f"API request failed: {str(e)}")
+            return {"error": f"API request failed: {str(e)}"}
 
 class VirusTotalAPI(GET_API):
     
     def __init__(self):
         super().__init__('virustotal')
         self.base_url = 'https://www.virustotal.com/api/v3'
-        self.headers = {"x-apikey": self.api_key}
+        self.headers = {"X-Apikey": self.api_key}
     
     def get_ip_report(self, ip):
         endpoint = f"{self.base_url}/ip_addresses/{ip}"
@@ -163,14 +163,18 @@ class VirusTotalAPI(GET_API):
         
     def lookup_query(self, query):
         # Look up generic query - automatically detects if it's an IP, domain, or email
-        if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', query):
-            return self.get_ip_report(query)
-        elif '@' in query:                          # Exact regex i have no idea #TODO: implement proper regex check
-            return self.get_email_report(query)
-        elif '.' in query:                          # Exact regex i have no idea #TODO: implement proper regex check
-            return self.get_domain_report(query)
-        else:
-            return 'No valid query type'
+        try:
+            if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', query):
+                return self.get_ip_report(query)
+            elif '@' in query:                          # Exact regex i have no idea #TODO: implement proper regex check
+                return self.get_email_report(query)
+            elif '.' in query:                          # Exact regex i have no idea #TODO: implement proper regex check
+                return self.get_domain_report(query)
+            else:
+                return {'error': 'No valid query type'}
+        except Exception as e:
+            logger.error(f"VirusTotal lookup error: {str(e)}")
+            return {'error': str(e)}
 
 class ShodanAPI(GET_API):
     
@@ -205,12 +209,16 @@ class ShodanAPI(GET_API):
         
     def lookup_query(self, query):
         # Look up generic query - automatically detects if it's an IP or domain
-        if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', query):
-            return self.get_ip_report(query)
-        elif '.' in query:                          # Exact regex i have no idea, refer to #VIRUS_TOTAL for the domain regex #TODO: copy regex from VIRUS_TOTAL
-            return self.get_domain_report(query)
-        else:
-            return 'No valid query type'
+        try:
+            if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', query):
+                return self.get_ip_report(query)
+            elif '.' in query:                          # Exact regex i have no idea, refer to #VIRUS_TOTAL for the domain regex #TODO: copy regex from VIRUS_TOTAL
+                return self.get_domain_report(query)
+            else:
+                return {"error": "No valid query type"}
+        except Exception as e:
+            logger.error(f"Shodan lookup error: {str(e)}")
+            return {'error': str(e)}
         
 class LeakCheckAPI(GET_API):
     
@@ -244,10 +252,14 @@ class LeakCheckAPI(GET_API):
         }
         
     def lookup_query(self, query):
-        if '@' in query:
-            return self.get_email_report(query)
-        else:
-            return 'No valid query type'
+        try:
+            if '@' in query:
+                return self.get_email_report(query)
+            else:
+                return {'error': 'No valid query type'}
+        except Exception as e:
+            logger.error(f"LeakCheck lookup error: {str(e)}")
+            return {'error': str(e)}
         
 class URLScanAPI(GET_API):
     
@@ -272,10 +284,14 @@ class URLScanAPI(GET_API):
         )
         
     def lookup_query(self, query):
-        if '.' in query:
-            return self.get_url_report(query)
-        else:
-            return 'No valid query type'
+        try:
+            if '.' in query:
+                return self.get_url_report(query)
+            else:
+                return 'No valid query type'
+        except Exception as e:
+            logger.error(f"URLScan lookup error: {str(e)}")
+            return {'error': str(e)}
         
 class AbuseIPDBAPI(GET_API):
     def __init__(self):
@@ -306,10 +322,14 @@ class AbuseIPDBAPI(GET_API):
         )
     
     def lookup_query(self, query):
-        if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', query):
-            return self.get_ip_report(query)
-        else:
-            return 'No valid query type'
+        try:
+            if re.match(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$', query):
+                return self.get_ip_report(query)
+            else:
+                return 'No valid query type'
+        except Exception as e:
+            logger.error(f"AbuseIPDB lookup error: {str(e)}")
+            return {'error': str(e)}
         
 # Helper classes for local services
 class DNSService:
