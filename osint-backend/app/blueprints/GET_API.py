@@ -6,6 +6,8 @@ import logging
 from dotenv import load_dotenv
 import re
 import redis
+import time
+import random
 
 classes = Blueprint('classes', __name__)
 
@@ -262,27 +264,109 @@ class LeakCheckAPI(GET_API):
             return {'error': str(e)}
         
 class URLScanAPI(GET_API):
-    
+
     def __init__(self):
         super().__init__('urlscan')
         self.base_url = "https://urlscan.io/api/v1"
-        
-    def get_url_report(self, domain):
-        endpoint = f"{self.base_url}/scan/"
+
+    def get_url_report(self, domain, max_retries=5, initial_wait=10, max_wait=60):
+        scan_endpoint = f"{self.base_url}/scan/"
+        result_endpoint_template = f"{self.base_url}/result/{{uuid}}/"
         cache_key_prefix = f"urlscan:domain:{domain}"
-        
-        headers = {"API-Key": self.api_key, "Content-Type": "application/json"}
+
+        # Check if we have cached results first
+        cache_key = f"urlscan:complete:{domain}"
+        cached_result = self.get_from_cache(cache_key)
+        if cached_result:
+            return cached_result
+
+        headers = {
+            "API-Key": self.api_key,
+            "Content-Type": "application/json"
+        }
         scan_data = {"url": domain, "visibility": "public"}
-        
-        return self.make_api_request(
-            endpoint=f"{self.base_url}/scan/",
+
+        # Step 1: Submit the scan
+        logger.info(f"Submitting scan for domain: {domain}")
+        scan_response = self.make_api_request(
+            endpoint=scan_endpoint,
             headers=headers,
             json_data=scan_data,
-            method='POST',
+            method="POST",
             cache_ttl=CACHE_TTL['domain_lookup'],
-            cache_key_prefix=cache_key_prefix
+            cache_key_prefix=f"urlscan:submission:{domain}"
         )
+
+        uuid = scan_response.get("uuid")
+        if not uuid:
+            return {"error": "Scan submission failed or no UUID returned"}
         
+        logger.info(f"Scan submitted successfully. UUID: {uuid}")
+        logger.info(f"Waiting for {initial_wait} seconds before checking results...")
+        
+        # Step 2: Wait for initial processing time
+        time.sleep(initial_wait)
+        
+        # Step 3: Try to fetch results with exponential backoff
+        result_endpoint = result_endpoint_template.format(uuid=uuid)
+        wait_time = initial_wait
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempt {attempt+1}/{max_retries} to fetch results for scan {uuid}")
+                
+                result = self.make_api_request(
+                    endpoint=result_endpoint,
+                    method="GET",
+                    cache_key_prefix=f"urlscan:result:{uuid}"
+                )
+                
+                # Check if we got a valid result
+                if result.get("page") and result.get("page", {}).get("url"):
+                    logger.info(f"Successfully retrieved scan results for {domain}")
+                    
+                    # Format the response
+                    formatted_result = {
+                        "summary": {
+                            "ips": result.get("ips"),
+                            "countries": result.get("countries"),
+                            "domains": result.get("domains"),
+                            "requests": result.get("requests", {}).get("count"),
+                            "ip": result.get("page", {}).get("ip"),
+                            "asn": result.get("page", {}).get("asnname"),
+                            "domain": result.get("page", {}).get("domain"),
+                            "tls_validFrom": result.get("page", {}).get("tlsValidFrom"),
+                            "tls_validTo": result.get("page", {}).get("tlsValidTo")
+                        },
+                        "page_title": result.get("page", {}).get("title"),
+                        "screenshot_url": result.get("task", {}).get("screenshotURL")
+                    }
+                    
+                    # Cache the completed result for future use
+                    self.set_in_cache(cache_key, formatted_result, CACHE_TTL['domain_lookup'])
+                    return formatted_result
+                
+                # If we get a response but the scan is still processing
+                if "status" in result and result["status"] in ["pending", "processing"]:
+                    logger.info(f"Scan {uuid} still processing, waiting {wait_time} seconds...")
+                else:
+                    logger.warning(f"Unexpected response format from URLScan: {result}")
+                
+            except Exception as e:
+                logger.error(f"Error retrieving scan results: {str(e)}")
+                
+            # Wait with exponential backoff (with a bit of randomness)
+            jitter = random.uniform(0.8, 1.2)
+            wait_time = min(wait_time * 1.5 * jitter, max_wait)
+            time.sleep(wait_time)
+        
+        # If we reach here, we've exhausted all retries
+        logger.error(f"Failed to retrieve scan results for {domain} after {max_retries} attempts")
+        return {
+            "error": f"Scan was submitted (UUID: {uuid}) but results couldn't be retrieved after {max_retries} attempts",
+            "uuid": uuid
+        }
+
     def lookup_query(self, query):
         try:
             if '.' in query:

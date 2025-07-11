@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import './UnifiedSearch.css';
+import config from '../config';
 
 function UnifiedSearch() {
     const [query, setQuery] = useState('');
@@ -30,7 +31,7 @@ function UnifiedSearch() {
 
         try {
             // Call the unified search endpoint
-            const response = await axios.post('http://10.77.252.160:5000/api/v1/main/unified-search', { 
+            const response = await axios.post(`${config.api.baseUrl}${config.api.endpoints.unifiedSearch}`, { 
                 query: sanitizedQuery 
             });
             

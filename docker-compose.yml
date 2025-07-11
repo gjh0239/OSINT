@@ -1,0 +1,47 @@
+services:
+  backend:
+    build: ./osint-backend
+    container_name: osint-backend
+    env_file: .env
+    volumes:
+      - ./osint-backend:/app
+    ports:
+      - "${BACKEND_PORT:-5005}:5005"
+    environment:
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - REDIS_URL=${REDIS_DOCKER_URL:-redis://redis:6379/0}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      - PORT=5005
+    depends_on:
+      - redis
+    networks:
+      - osint-network
+
+  frontend:
+    build: ./osint-frontend
+    container_name: osint-frontendc
+    ports:
+      - "${FRONTEND_PORT:-3000}:80" # Host port 3000 to container port 80
+    depends_on:
+      - backend
+    environment:
+      - REACT_APP_BACKEND_URL=http://${BACKEND_HOST:-localhost}:${BACKEND_PORT:-5005}/api/v1/main
+    networks:
+      - osint-network
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - osint-network
+
+networks:
+  osint-network:
+    driver: bridge
+
+volumes:
+  redis-data:
